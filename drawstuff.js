@@ -2,6 +2,7 @@
 
 /* Ray Casting Functions */
 /* ---------- PART 3: Unique Scene (Retro Robot) ---------- */
+// [AI USE - start]
 function intersectRaySphere(ro, rd, sph) {
     // ro, rd are objects {x,y,z}; sph: {c:{x,y,z}, r: number}
     const ocx = ro.x - sph.c.x;
@@ -58,6 +59,7 @@ function isOccluded(ro, rd, maxDist, spheres, boxes) {
     }
     return false;
 }
+// [AI USE - end]
 
 // Build a quirky "retro robot" scene using boxes and spheres (coordinates in [0,1] range)
 function buildPart3Scene() {
@@ -172,7 +174,7 @@ function buildPart3Scene() {
 
     return { boxes: boxes, spheres: spheres };
 }
-
+// [AI USE - start]
 // The Part3 renderer: raycast every pixel, supports shadows & multiple lights
 function renderPart3(context) {
     const scene = buildPart3Scene();
@@ -334,7 +336,9 @@ function renderPart3(context) {
 
     context.putImageData(out, 0, 0);
 }
+// [AI USE - end]
 
+// [AI USE - start]
 function intersectRayAABB(rayOrigin, rayDir, box) {
     // axis-aligned min/max arrays for compact looping
     const mins = [ box.lx, box.by, box.fz ];
@@ -385,7 +389,7 @@ function intersectRayAABB(rayOrigin, rayDir, box) {
             nFarAxis[a]   = negNormals[a];
         }
     }
-
+	// [AI USE - end]
     // overall entry is the maximum of per-axis near values
     let tEntry = tNearAxis[0], entryIdx = 0;
     for (let a = 1; a < 3; a++) {
@@ -410,7 +414,7 @@ function intersectRayAABB(rayOrigin, rayDir, box) {
 
     return null;
 }
-
+// [AI USE - start]
 function renderBoxesRayCast(context) {
     const boxes = getInputBoxes();
     if (boxes === String.null) return;
@@ -508,6 +512,7 @@ function renderBoxesRayCast(context) {
 
     context.putImageData(out, 0, 0);
 }
+// [AI USE - end]
 
 // Color constructor
 class Color {
