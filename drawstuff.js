@@ -4,9 +4,9 @@
 
 /* Enhanced Ray Casting Implementation - Part 1 & 2 Only */
 
-// ===============================
-// Part 1: Unlit boxes (orthographic projection)
-// ===============================
+// -------------------------------
+// Part 1: Unlit boxes (uses perspective-style rays; solid diffuse color)
+// -------------------------------
 function drawRayCastBoxesUnlit(context) {
     var boxes = getInputBoxes();
     var width = context.canvas.width;
@@ -14,40 +14,55 @@ function drawRayCastBoxesUnlit(context) {
     var imageBuffer = context.createImageData(width, height);
 
     if (boxes !== String.null) {
-        // Simple orthographic camera setup
-        var cameraPosition = [0.5, 0.5, -1.0];
-        var viewDirection = [0, 0, 1];
+        // Camera configuration (tuned so boxes appear near bottom-left)
+        var cameraPosition = [0.35, 0.25, -0.6];
+        var viewDirection = [0.5, 0.45, 0.5]; // a point in front of the camera
+        var upVector = [0, 1, 0];
 
-        // Loop through pixels
+        // compute orthonormal viewing basis
+        var viewVector = normalize([
+            viewDirection[0] - cameraPosition[0],
+            viewDirection[1] - cameraPosition[1],
+            viewDirection[2] - cameraPosition[2]
+        ]);
+        var sideVector = normalize(cross(viewVector, upVector));
+        var cameraUpVector = normalize(cross(sideVector, viewVector));
+
+        // For every pixel cast ray
         for (var row = 0; row < height; row++) {
             for (var col = 0; col < width; col++) {
-                // Ray direction stays constant in orthographic
-                var rayDirection = viewDirection.slice();
+                // normalized pixel offsets in range [-0.5, 0.5]
+                var u = (col / width) - 0.5;
+                var v = ((height - row) / height) - 0.5;
 
-                // Ray starts at camera + pixel offset
-                var u = col / width;
-                var v = 1 - row / height;
-                var rayStart = [u, v, cameraPosition[2]];
+                // perspective-like ray direction (ensures non-zero x/y components)
+                var rayDirection = normalize([
+                    viewVector[0] + u * sideVector[0] + v * cameraUpVector[0],
+                    viewVector[1] + u * sideVector[1] + v * cameraUpVector[1],
+                    viewVector[2] + u * sideVector[2] + v * cameraUpVector[2]
+                ]);
 
+                var rayStart = cameraPosition;
+
+                // find nearest box
                 var minDistance = Number.MAX_VALUE;
                 var hitBox = null;
-
                 for (var i = 0; i < boxes.length; i++) {
-                    var hitDistance = calculateBoxHitDistance(rayStart, rayDirection, boxes[i]);
-                    if (hitDistance > 0 && hitDistance < minDistance) {
-                        minDistance = hitDistance;
+                    var d = calculateBoxHitDistance(rayStart, rayDirection, boxes[i]);
+                    if (d > 0 && d < minDistance) {
+                        minDistance = d;
                         hitBox = boxes[i];
                     }
                 }
 
                 if (hitBox !== null) {
-                    var c = new Color(
-                        hitBox.diffuse[0] * 255,
-                        hitBox.diffuse[1] * 255,
-                        hitBox.diffuse[2] * 255,
+                    var finalColor = new Color(
+                        Math.floor(hitBox.diffuse[0] * 255),
+                        Math.floor(hitBox.diffuse[1] * 255),
+                        Math.floor(hitBox.diffuse[2] * 255),
                         255
                     );
-                    drawPixel(imageBuffer, col, row, c);
+                    drawPixel(imageBuffer, col, row, finalColor);
                 } else {
                     drawPixel(imageBuffer, col, row, new Color(0, 0, 0, 255));
                 }
@@ -57,9 +72,9 @@ function drawRayCastBoxesUnlit(context) {
     }
 }
 
-// ===============================
-// Part 2: Lit boxes with Blinn-Phong
-// ===============================
+// -------------------------------
+// Part 2: Lit boxes with Blinn-Phong (same ray setup + lighting)
+// -------------------------------
 function drawRayCastBoxesLit(context) {
     var boxes = getInputBoxes();
     var width = context.canvas.width;
@@ -67,20 +82,37 @@ function drawRayCastBoxesLit(context) {
     var imageBuffer = context.createImageData(width, height);
 
     if (boxes !== String.null) {
-        // Orthographic camera
-        var cameraPosition = [0.5, 0.5, -1.0];
-        var viewDirection = [0, 0, 1];
-        var lightPosition = [0.5, 1.5, -0.5]; // overhead, slightly front
+        // Camera and lighting
+        var cameraPosition = [0.35, 0.25, -0.6];
+        var viewDirection = [0.5, 0.45, 0.5];
+        var upVector = [0, 1, 0];
+
+        // light placed overhead and slightly towards camera
+        var lightPosition = [0.4, 1.4, -0.2];
         var lightIntensity = [1.0, 1.0, 1.0];
 
-        // Loop through pixels
+        // compute viewing basis
+        var viewVector = normalize([
+            viewDirection[0] - cameraPosition[0],
+            viewDirection[1] - cameraPosition[1],
+            viewDirection[2] - cameraPosition[2]
+        ]);
+        var sideVector = normalize(cross(viewVector, upVector));
+        var cameraUpVector = normalize(cross(sideVector, viewVector));
+
         for (var row = 0; row < height; row++) {
             for (var col = 0; col < width; col++) {
-                var rayDirection = viewDirection.slice();
-                var u = col / width;
-                var v = 1 - row / height;
-                var rayStart = [u, v, cameraPosition[2]];
+                var u = (col / width) - 0.5;
+                var v = ((height - row) / height) - 0.5;
 
+                var rayDirection = normalize([
+                    viewVector[0] + u * sideVector[0] + v * cameraUpVector[0],
+                    viewVector[1] + u * sideVector[1] + v * cameraUpVector[1],
+                    viewVector[2] + u * sideVector[2] + v * cameraUpVector[2]
+                ]);
+                var rayStart = cameraPosition;
+
+                // find closest hit with normal
                 var minDistance = Number.MAX_VALUE;
                 var hitBox = null;
                 var hitPosition = null;
@@ -97,25 +129,31 @@ function drawRayCastBoxesLit(context) {
                 }
 
                 if (hitBox !== null) {
+                    // choose material components
+                    var ambient = hitBox.diffuse;                 // keep simple ambient
+                    var diffuse = hitBox.diffuse;
+                    var specular = [0.2, 0.2, 0.2];               // subtle specular
+                    var shininess = 40.0;
+
                     var illuminatedColor = calculateSurfaceIllumination(
                         hitPosition,
                         surfaceNormal,
                         cameraPosition,
                         lightPosition,
                         lightIntensity,
-                        hitBox.diffuse,  // diffuse
-                        hitBox.diffuse,  // ambient = diffuse for simplicity
-                        [1.0, 1.0, 1.0], // white specular
-                        30.0             // shininess
+                        diffuse,
+                        ambient,
+                        specular,
+                        shininess
                     );
 
-                    var c = new Color(
-                        illuminatedColor[0] * 255,
-                        illuminatedColor[1] * 255,
-                        illuminatedColor[2] * 255,
+                    var finalColor = new Color(
+                        Math.floor(illuminatedColor[0] * 255),
+                        Math.floor(illuminatedColor[1] * 255),
+                        Math.floor(illuminatedColor[2] * 255),
                         255
                     );
-                    drawPixel(imageBuffer, col, row, c);
+                    drawPixel(imageBuffer, col, row, finalColor);
                 } else {
                     drawPixel(imageBuffer, col, row, new Color(0, 0, 0, 255));
                 }
@@ -124,7 +162,6 @@ function drawRayCastBoxesLit(context) {
         context.putImageData(imageBuffer, 0, 0);
     }
 }
-
 
 // Color constructor
 class Color {
