@@ -1,5 +1,315 @@
 /* classes */ 
 
+/* Ray Casting Functions */
+
+// Ray casting for boxes without lighting (Part 1)
+function drawRayCastBoxesUnlit(context) {
+    var inputBoxes = getInputBoxes();
+    var w = context.canvas.width;
+    var h = context.canvas.height;
+    var imagedata = context.createImageData(w, h);
+    
+    if (inputBoxes != String.null) {
+        // Camera setup
+        var eye = [0.5, 0.5, -0.5];
+        var lookAt = [0, 0, 1];
+        var up = [0, 1, 0];
+        
+        // Window setup (1x1 square, 0.5 units from eye, centered at (0.5, 0.5, 0))
+        var windowCenter = [0.5, 0.5, 0];
+        var windowSize = 1.0;
+        var windowDistance = 0.5;
+        
+        // Precompute camera basis vectors
+        var gaze = normalize(subtract(lookAt, eye));
+        var right = normalize(cross(gaze, up));
+        var cameraUp = normalize(cross(right, gaze));
+        
+        // Loop over every pixel
+        for (var y = 0; y < h; y++) {
+            for (var x = 0; x < w; x++) {
+                // Compute ray direction for this pixel
+                var u = (x / w) - 0.5;  // -0.5 to 0.5
+                var v = ((h - y) / h) - 0.5;  // -0.5 to 0.5 (flip y)
+                
+                var rayDir = normalize([
+                    gaze[0] + u * right[0] + v * cameraUp[0],
+                    gaze[1] + u * right[1] + v * cameraUp[1],
+                    gaze[2] + u * right[2] + v * cameraUp[2]
+                ]);
+                
+                var rayOrigin = eye;
+                
+                // Find closest intersection with boxes
+                var closestT = Infinity;
+                var closestBox = null;
+                
+                for (var b = 0; b < inputBoxes.length; b++) {
+                    var box = inputBoxes[b];
+                    var t = rayBoxIntersection(rayOrigin, rayDir, box);
+                    
+                    if (t > 0 && t < closestT) {
+                        closestT = t;
+                        closestBox = box;
+                    }
+                }
+                
+                // Set pixel color
+                if (closestBox !== null) {
+                    var color = new Color(
+                        closestBox.diffuse[0] * 255,
+                        closestBox.diffuse[1] * 255,
+                        closestBox.diffuse[2] * 255,
+                        255
+                    );
+                    drawPixel(imagedata, x, y, color);
+                } else {
+                    // Background color (black)
+                    drawPixel(imagedata, x, y, new Color(0, 0, 0, 255));
+                }
+            }
+        }
+        context.putImageData(imagedata, 0, 0);
+    }
+}
+
+// Ray casting for boxes with Blinn-Phong lighting (Part 2)
+function drawRayCastBoxesLit(context) {
+    var inputBoxes = getInputBoxes();
+    var w = context.canvas.width;
+    var h = context.canvas.height;
+    var imagedata = context.createImageData(w, h);
+    
+    if (inputBoxes != String.null) {
+        // Camera setup
+        var eye = [0.5, 0.5, -0.5];
+        var lookAt = [0, 0, 1];
+        var up = [0, 1, 0];
+        
+        // Light setup
+        var lightPos = [-0.5, 1.5, -0.5];
+        var lightColor = [1.0, 1.0, 1.0]; // White light
+        
+        // Precompute camera basis vectors
+        var gaze = normalize(subtract(lookAt, eye));
+        var right = normalize(cross(gaze, up));
+        var cameraUp = normalize(cross(right, gaze));
+        
+        // Loop over every pixel
+        for (var y = 0; y < h; y++) {
+            for (var x = 0; x < w; x++) {
+                // Compute ray direction for this pixel
+                var u = (x / w) - 0.5;
+                var v = ((h - y) / h) - 0.5;
+                
+                var rayDir = normalize([
+                    gaze[0] + u * right[0] + v * cameraUp[0],
+                    gaze[1] + u * right[1] + v * cameraUp[1],
+                    gaze[2] + u * right[2] + v * cameraUp[2]
+                ]);
+                
+                var rayOrigin = eye;
+                
+                // Find closest intersection with boxes
+                var closestT = Infinity;
+                var closestBox = null;
+                var intersectionPoint = null;
+                var normal = null;
+                
+                for (var b = 0; b < inputBoxes.length; b++) {
+                    var box = inputBoxes[b];
+                    var result = rayBoxIntersectionWithNormal(rayOrigin, rayDir, box);
+                    
+                    if (result.t > 0 && result.t < closestT) {
+                        closestT = result.t;
+                        closestBox = box;
+                        intersectionPoint = result.point;
+                        normal = result.normal;
+                    }
+                }
+                
+                // Set pixel color with lighting
+                if (closestBox !== null) {
+                    var color = computeBlinnPhong(
+                        intersectionPoint,
+                        normal,
+                        eye,
+                        lightPos,
+                        lightColor,
+                        closestBox.diffuse,
+                        closestBox.diffuse, // Using diffuse as ambient
+                        [1.0, 1.0, 1.0],   // White specular
+                        50.0                // Shininess
+                    );
+                    
+                    var pixelColor = new Color(
+                        color[0] * 255,
+                        color[1] * 255,
+                        color[2] * 255,
+                        255
+                    );
+                    drawPixel(imagedata, x, y, pixelColor);
+                } else {
+                    // Background color (black)
+                    drawPixel(imagedata, x, y, new Color(0, 0, 0, 255));
+                }
+            }
+        }
+        context.putImageData(imagedata, 0, 0);
+    }
+}
+
+// Utility math functions
+function subtract(a, b) {
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function add(a, b) {
+    return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+function scale(v, s) {
+    return [v[0] * s, v[1] * s, v[2] * s];
+}
+
+function dot(a, b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function cross(a, b) {
+    return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+    ];
+}
+
+function length(v) {
+    return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+}
+
+function normalize(v) {
+    var len = length(v);
+    if (len === 0) return [0, 0, 0];
+    return [v[0] / len, v[1] / len, v[2] / len];
+}
+
+// Ray-box intersection test (returns t value or -1 if no intersection)
+function rayBoxIntersection(origin, direction, box) {
+    var lx = box.lx;
+    var rx = box.rx;
+    var by = box.by;
+    var ty = box.ty;
+    var fz = box.fz;
+    var rz = box.rz;
+    
+    var tmin = (lx - origin[0]) / direction[0];
+    var tmax = (rx - origin[0]) / direction[0];
+    
+    if (tmin > tmax) [tmin, tmax] = [tmax, tmin];
+    
+    var tymin = (by - origin[1]) / direction[1];
+    var tymax = (ty - origin[1]) / direction[1];
+    
+    if (tymin > tymax) [tymin, tymax] = [tymax, tymin];
+    
+    if ((tmin > tymax) || (tymin > tmax)) return -1;
+    
+    if (tymin > tmin) tmin = tymin;
+    if (tymax < tmax) tmax = tymax;
+    
+    var tzmin = (fz - origin[2]) / direction[2];
+    var tzmax = (rz - origin[2]) / direction[2];
+    
+    if (tzmin > tzmax) [tzmin, tzmax] = [tzmax, tzmin];
+    
+    if ((tmin > tzmax) || (tzmin > tmax)) return -1;
+    
+    if (tzmin > tmin) tmin = tzmin;
+    if (tzmax < tmax) tmax = tzmax;
+    
+    if (tmin < 0) {
+        if (tmax < 0) return -1;
+        return tmax;
+    }
+    
+    return tmin;
+}
+
+// Ray-box intersection with normal calculation
+function rayBoxIntersectionWithNormal(origin, direction, box) {
+    var lx = box.lx;
+    var rx = box.rx;
+    var by = box.by;
+    var ty = box.ty;
+    var fz = box.fz;
+    var rz = box.rz;
+    
+    var t = rayBoxIntersection(origin, direction, box);
+    
+    if (t <= 0) return { t: -1 };
+    
+    // Calculate intersection point
+    var point = [
+        origin[0] + t * direction[0],
+        origin[1] + t * direction[1],
+        origin[2] + t * direction[2]
+    ];
+    
+    // Calculate normal by finding which face was hit
+    var epsilon = 0.0001;
+    var normal = [0, 0, 0];
+    
+    if (Math.abs(point[0] - lx) < epsilon) normal[0] = -1;
+    else if (Math.abs(point[0] - rx) < epsilon) normal[0] = 1;
+    else if (Math.abs(point[1] - by) < epsilon) normal[1] = -1;
+    else if (Math.abs(point[1] - ty) < epsilon) normal[1] = 1;
+    else if (Math.abs(point[2] - fz) < epsilon) normal[2] = -1;
+    else if (Math.abs(point[2] - rz) < epsilon) normal[2] = 1;
+    
+    return {
+        t: t,
+        point: point,
+        normal: normal
+    };
+}
+
+// Blinn-Phong lighting calculation
+function computeBlinnPhong(point, normal, eye, lightPos, lightColor, 
+                          materialDiffuse, materialAmbient, materialSpecular, shininess) {
+    // Normalize vectors
+    var N = normalize(normal);
+    var V = normalize(subtract(eye, point));
+    var L = normalize(subtract(lightPos, point));
+    var H = normalize(add(L, V));
+    
+    // Calculate lighting components
+    var diffuse = Math.max(0, dot(N, L));
+    var specular = Math.pow(Math.max(0, dot(N, H)), shininess);
+    
+    // Combine components
+    var color = [
+        materialAmbient[0] * lightColor[0] + 
+        materialDiffuse[0] * lightColor[0] * diffuse + 
+        materialSpecular[0] * lightColor[0] * specular,
+        
+        materialAmbient[1] * lightColor[1] + 
+        materialDiffuse[1] * lightColor[1] * diffuse + 
+        materialSpecular[1] * lightColor[1] * specular,
+        
+        materialAmbient[2] * lightColor[2] + 
+        materialDiffuse[2] * lightColor[2] * diffuse + 
+        materialSpecular[2] * lightColor[2] * specular
+    ];
+    
+    // Clamp to [0, 1]
+    color[0] = Math.min(1, Math.max(0, color[0]));
+    color[1] = Math.min(1, Math.max(0, color[1]));
+    color[2] = Math.min(1, Math.max(0, color[2]));
+    
+    return color;
+}
+
 // Color constructor
 class Color {
     constructor(r,g,b,a) {
@@ -460,31 +770,47 @@ function drawInputBoxesUsingPaths(context) {
 
 /* main -- here is where execution begins after window load */
 
-function main() {
+// function main() {
 
+//     // Get the canvas and context
+//     var canvas = document.getElementById("viewport"); 
+//     var context = canvas.getContext("2d");
+ 
+//     // Create the image
+//     //drawRandPixels(context);
+//       // shows how to draw pixels
+    
+//     //drawRandPixelsInInputEllipsoids(context);
+//       // shows how to draw pixels and read input file
+      
+//     //drawInputEllipsoidsUsingArcs(context);
+//       // shows how to read input file, but not how to draw pixels
+    
+//     //drawRandPixelsInInputTriangles(context);
+//       // shows how to draw pixels and read input file
+    
+//     //drawInputTrainglesUsingPaths(context);
+//       // shows how to read input file, but not how to draw pixels
+    
+//     drawRandPixelsInInputBoxes(context);
+//       // shows how to draw pixels and read input file
+    
+//     //drawInputBoxesUsingPaths(context);
+//       // shows how to read input file, but not how to draw pixels
+// }
+
+function main() {
     // Get the canvas and context
     var canvas = document.getElementById("viewport"); 
     var context = canvas.getContext("2d");
  
-    // Create the image
-    //drawRandPixels(context);
-      // shows how to draw pixels
+    // Create the image using ray casting
     
-    //drawRandPixelsInInputEllipsoids(context);
-      // shows how to draw pixels and read input file
-      
-    //drawInputEllipsoidsUsingArcs(context);
-      // shows how to read input file, but not how to draw pixels
+    // Part 1: Unlit boxes
+    //drawRayCastBoxesUnlit(context);
     
-    //drawRandPixelsInInputTriangles(context);
-      // shows how to draw pixels and read input file
+    // Part 2: Lit boxes with Blinn-Phong illumination
+    drawRayCastBoxesLit(context);
     
-    //drawInputTrainglesUsingPaths(context);
-      // shows how to read input file, but not how to draw pixels
-    
-    drawRandPixelsInInputBoxes(context);
-      // shows how to draw pixels and read input file
-    
-    //drawInputBoxesUsingPaths(context);
-      // shows how to read input file, but not how to draw pixels
+    // You can comment/uncomment the above lines to test each part
 }
