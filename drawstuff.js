@@ -2,313 +2,287 @@
 
 /* Ray Casting Functions */
 
-// Ray casting for boxes without lighting (Part 1)
+/* Enhanced Ray Casting Implementation - Part 1 & 2 Only */
+
+// Part 1: Unlit boxes with different implementation
 function drawRayCastBoxesUnlit(context) {
-    var inputBoxes = getInputBoxes();
-    var w = context.canvas.width;
-    var h = context.canvas.height;
-    var imagedata = context.createImageData(w, h);
+    var boxes = getInputBoxes();
+    var width = context.canvas.width;
+    var height = context.canvas.height;
+    var imageBuffer = context.createImageData(width, height);
     
-    if (inputBoxes != String.null) {
-        // Camera setup
-        var eye = [0.5, 0.5, -0.5];
-        var lookAt = [0, 0, 1];
-        var up = [0, 1, 0];
+    if (boxes !== String.null) {
+        // Camera configuration as specified
+        var cameraPosition = [0.5, 0.5, -0.5];
+        var viewDirection = [0, 0, 1];
+        var upVector = [0, 1, 0];
         
-        // Window setup (1x1 square, 0.5 units from eye, centered at (0.5, 0.5, 0))
-        var windowCenter = [0.5, 0.5, 0];
-        var windowSize = 1.0;
-        var windowDistance = 0.5;
+        // Calculate viewing vectors
+        var viewVector = normalize([
+            viewDirection[0] - cameraPosition[0],
+            viewDirection[1] - cameraPosition[1],
+            viewDirection[2] - cameraPosition[2]
+        ]);
         
-        // Precompute camera basis vectors
-        var gaze = normalize(subtract(lookAt, eye));
-        var right = normalize(cross(gaze, up));
-        var cameraUp = normalize(cross(right, gaze));
+        var sideVector = normalize(cross(viewVector, upVector));
+        var cameraUpVector = normalize(cross(sideVector, viewVector));
         
-        // Loop over every pixel
-        for (var y = 0; y < h; y++) {
-            for (var x = 0; x < w; x++) {
-                // Compute ray direction for this pixel
-                var u = (x / w) - 0.5;  // -0.5 to 0.5
-                var v = ((h - y) / h) - 0.5;  // -0.5 to 0.5 (flip y)
+        // Process each screen pixel
+        for (var row = 0; row < height; row++) {
+            for (var col = 0; col < width; col++) {
+                // Convert pixel coordinates to world coordinates
+                var u = (col / width) - 0.5;
+                var v = ((height - row) / height) - 0.5;
                 
-                var rayDir = normalize([
-                    gaze[0] + u * right[0] + v * cameraUp[0],
-                    gaze[1] + u * right[1] + v * cameraUp[1],
-                    gaze[2] + u * right[2] + v * cameraUp[2]
+                // Calculate ray direction for current pixel
+                var rayDirection = normalize([
+                    viewVector[0] + u * sideVector[0] + v * cameraUpVector[0],
+                    viewVector[1] + u * sideVector[1] + v * cameraUpVector[1],
+                    viewVector[2] + u * sideVector[2] + v * cameraUpVector[2]
                 ]);
                 
-                var rayOrigin = eye;
+                var rayStart = cameraPosition;
                 
-                // Find closest intersection with boxes
-                var closestT = Infinity;
-                var closestBox = null;
+                // Check for box intersections
+                var minDistance = Number.MAX_VALUE;
+                var hitBox = null;
                 
-                for (var b = 0; b < inputBoxes.length; b++) {
-                    var box = inputBoxes[b];
-                    var t = rayBoxIntersection(rayOrigin, rayDir, box);
+                for (var i = 0; i < boxes.length; i++) {
+                    var currentBox = boxes[i];
+                    var hitDistance = calculateBoxHitDistance(rayStart, rayDirection, currentBox);
                     
-                    if (t > 0 && t < closestT) {
-                        closestT = t;
-                        closestBox = box;
+                    if (hitDistance > 0 && hitDistance < minDistance) {
+                        minDistance = hitDistance;
+                        hitBox = currentBox;
                     }
                 }
                 
-                // Set pixel color
-                if (closestBox !== null) {
-                    var color = new Color(
-                        closestBox.diffuse[0] * 255,
-                        closestBox.diffuse[1] * 255,
-                        closestBox.diffuse[2] * 255,
+                // Determine pixel color
+                if (hitBox !== null) {
+                    var finalColor = new Color(
+                        hitBox.diffuse[0] * 255,
+                        hitBox.diffuse[1] * 255,
+                        hitBox.diffuse[2] * 255,
                         255
                     );
-                    drawPixel(imagedata, x, y, color);
+                    drawPixel(imageBuffer, col, row, finalColor);
                 } else {
-                    // Background color (black)
-                    drawPixel(imagedata, x, y, new Color(0, 0, 0, 255));
+                    // Set background to black
+                    drawPixel(imageBuffer, col, row, new Color(0, 0, 0, 255));
                 }
             }
         }
-        context.putImageData(imagedata, 0, 0);
+        context.putImageData(imageBuffer, 0, 0);
     }
 }
 
-// Ray casting for boxes with Blinn-Phong lighting (Part 2)
+// Part 2: Lit boxes with Blinn-Phong illumination
 function drawRayCastBoxesLit(context) {
-    var inputBoxes = getInputBoxes();
-    var w = context.canvas.width;
-    var h = context.canvas.height;
-    var imagedata = context.createImageData(w, h);
+    var boxes = getInputBoxes();
+    var width = context.canvas.width;
+    var height = context.canvas.height;
+    var imageBuffer = context.createImageData(width, height);
     
-    if (inputBoxes != String.null) {
-        // Camera setup
-        var eye = [0.5, 0.5, -0.5];
-        var lookAt = [0, 0, 1];
-        var up = [0, 1, 0];
+    if (boxes !== String.null) {
+        // Camera and lighting setup
+        var cameraPosition = [0.5, 0.5, -0.5];
+        var viewDirection = [0, 0, 1];
+        var upVector = [0, 1, 0];
+        var lightPosition = [-0.5, 1.5, -0.5];
+        var lightIntensity = [1.0, 1.0, 1.0];
         
-        // Light setup
-        var lightPos = [-0.5, 1.5, -0.5];
-        var lightColor = [1.0, 1.0, 1.0]; // White light
+        // Calculate viewing vectors
+        var viewVector = normalize([
+            viewDirection[0] - cameraPosition[0],
+            viewDirection[1] - cameraPosition[1],
+            viewDirection[2] - cameraPosition[2]
+        ]);
         
-        // Precompute camera basis vectors
-        var gaze = normalize(subtract(lookAt, eye));
-        var right = normalize(cross(gaze, up));
-        var cameraUp = normalize(cross(right, gaze));
+        var sideVector = normalize(cross(viewVector, upVector));
+        var cameraUpVector = normalize(cross(sideVector, viewVector));
         
-        // Loop over every pixel
-        for (var y = 0; y < h; y++) {
-            for (var x = 0; x < w; x++) {
-                // Compute ray direction for this pixel
-                var u = (x / w) - 0.5;
-                var v = ((h - y) / h) - 0.5;
+        // Process each screen pixel
+        for (var row = 0; row < height; row++) {
+            for (var col = 0; col < width; col++) {
+                // Convert pixel coordinates to world coordinates
+                var u = (col / width) - 0.5;
+                var v = ((height - row) / height) - 0.5;
                 
-                var rayDir = normalize([
-                    gaze[0] + u * right[0] + v * cameraUp[0],
-                    gaze[1] + u * right[1] + v * cameraUp[1],
-                    gaze[2] + u * right[2] + v * cameraUp[2]
+                // Calculate ray direction
+                var rayDirection = normalize([
+                    viewVector[0] + u * sideVector[0] + v * cameraUpVector[0],
+                    viewVector[1] + u * sideVector[1] + v * cameraUpVector[1],
+                    viewVector[2] + u * sideVector[2] + v * cameraUpVector[2]
                 ]);
                 
-                var rayOrigin = eye;
+                var rayStart = cameraPosition;
                 
-                // Find closest intersection with boxes
-                var closestT = Infinity;
-                var closestBox = null;
-                var intersectionPoint = null;
-                var normal = null;
+                // Find closest box intersection with surface information
+                var minDistance = Number.MAX_VALUE;
+                var hitBox = null;
+                var hitPosition = null;
+                var surfaceNormal = null;
                 
-                for (var b = 0; b < inputBoxes.length; b++) {
-                    var box = inputBoxes[b];
-                    var result = rayBoxIntersectionWithNormal(rayOrigin, rayDir, box);
+                for (var i = 0; i < boxes.length; i++) {
+                    var currentBox = boxes[i];
+                    var hitInfo = calculateBoxHitWithNormal(rayStart, rayDirection, currentBox);
                     
-                    if (result.t > 0 && result.t < closestT) {
-                        closestT = result.t;
-                        closestBox = box;
-                        intersectionPoint = result.point;
-                        normal = result.normal;
+                    if (hitInfo.distance > 0 && hitInfo.distance < minDistance) {
+                        minDistance = hitInfo.distance;
+                        hitBox = currentBox;
+                        hitPosition = hitInfo.position;
+                        surfaceNormal = hitInfo.normal;
                     }
                 }
                 
-                // Set pixel color with lighting
-                if (closestBox !== null) {
-                    var color = computeBlinnPhong(
-                        intersectionPoint,
-                        normal,
-                        eye,
-                        lightPos,
-                        lightColor,
-                        closestBox.diffuse,
-                        closestBox.diffuse, // Using diffuse as ambient
-                        [1.0, 1.0, 1.0],   // White specular
-                        50.0                // Shininess
+                // Calculate lighting and set pixel color
+                if (hitBox !== null) {
+                    var illuminatedColor = calculateSurfaceIllumination(
+                        hitPosition,
+                        surfaceNormal,
+                        cameraPosition,
+                        lightPosition,
+                        lightIntensity,
+                        hitBox.diffuse,
+                        hitBox.diffuse, // Use diffuse color for ambient
+                        [1.0, 1.0, 1.0], // White specular
+                        50.0 // Shininess factor
                     );
                     
-                    var pixelColor = new Color(
-                        color[0] * 255,
-                        color[1] * 255,
-                        color[2] * 255,
+                    var finalColor = new Color(
+                        illuminatedColor[0] * 255,
+                        illuminatedColor[1] * 255,
+                        illuminatedColor[2] * 255,
                         255
                     );
-                    drawPixel(imagedata, x, y, pixelColor);
+                    drawPixel(imageBuffer, col, row, finalColor);
                 } else {
-                    // Background color (black)
-                    drawPixel(imagedata, x, y, new Color(0, 0, 0, 255));
+                    // Set background to black
+                    drawPixel(imageBuffer, col, row, new Color(0, 0, 0, 255));
                 }
             }
         }
-        context.putImageData(imagedata, 0, 0);
+        context.putImageData(imageBuffer, 0, 0);
     }
 }
 
-// Utility math functions
-function subtract(a, b) {
-    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+// Alternative box intersection calculation
+function calculateBoxHitDistance(rayOrigin, rayDirection, box) {
+    var xMin = box.lx, xMax = box.rx;
+    var yMin = box.by, yMax = box.ty;
+    var zMin = box.fz, zMax = box.rz;
+    
+    // Calculate intersection distances for each axis
+    var tx1 = (xMin - rayOrigin[0]) / rayDirection[0];
+    var tx2 = (xMax - rayOrigin[0]) / rayDirection[0];
+    
+    var ty1 = (yMin - rayOrigin[1]) / rayDirection[1];
+    var ty2 = (yMax - rayOrigin[1]) / rayDirection[1];
+    
+    var tz1 = (zMin - rayOrigin[2]) / rayDirection[2];
+    var tz2 = (zMax - rayOrigin[2]) / rayDirection[2];
+    
+    // Ensure proper min/max ordering
+    if (tx1 > tx2) [tx1, tx2] = [tx2, tx1];
+    if (ty1 > ty2) [ty1, ty2] = [ty2, ty1];
+    if (tz1 > tz2) [tz1, tz2] = [tz2, tz1];
+    
+    // Find the largest minimum and smallest maximum
+    var tNear = Math.max(tx1, ty1, tz1);
+    var tFar = Math.min(tx2, ty2, tz2);
+    
+    // Check for valid intersection
+    if (tNear > tFar || tFar < 0) return -1;
+    
+    // Return the closest positive intersection distance
+    return tNear >= 0 ? tNear : tFar;
 }
 
-function add(a, b) {
-    return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-
-function scale(v, s) {
-    return [v[0] * s, v[1] * s, v[2] * s];
-}
-
-function dot(a, b) {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-function cross(a, b) {
-    return [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0]
-    ];
-}
-
-function length(v) {
-    return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-}
-
-function normalize(v) {
-    var len = length(v);
-    if (len === 0) return [0, 0, 0];
-    return [v[0] / len, v[1] / len, v[2] / len];
-}
-
-// Ray-box intersection test (returns t value or -1 if no intersection)
-function rayBoxIntersection(origin, direction, box) {
-    var lx = box.lx;
-    var rx = box.rx;
-    var by = box.by;
-    var ty = box.ty;
-    var fz = box.fz;
-    var rz = box.rz;
+// Enhanced intersection with normal calculation
+function calculateBoxHitWithNormal(rayOrigin, rayDirection, box) {
+    var hitDistance = calculateBoxHitDistance(rayOrigin, rayDirection, box);
     
-    var tmin = (lx - origin[0]) / direction[0];
-    var tmax = (rx - origin[0]) / direction[0];
+    if (hitDistance <= 0) return { distance: -1 };
     
-    if (tmin > tmax) [tmin, tmax] = [tmax, tmin];
-    
-    var tymin = (by - origin[1]) / direction[1];
-    var tymax = (ty - origin[1]) / direction[1];
-    
-    if (tymin > tymax) [tymin, tymax] = [tymax, tymin];
-    
-    if ((tmin > tymax) || (tymin > tmax)) return -1;
-    
-    if (tymin > tmin) tmin = tymin;
-    if (tymax < tmax) tmax = tymax;
-    
-    var tzmin = (fz - origin[2]) / direction[2];
-    var tzmax = (rz - origin[2]) / direction[2];
-    
-    if (tzmin > tzmax) [tzmin, tzmax] = [tzmax, tzmin];
-    
-    if ((tmin > tzmax) || (tzmin > tmax)) return -1;
-    
-    if (tzmin > tmin) tmin = tzmin;
-    if (tzmax < tmax) tmax = tzmax;
-    
-    if (tmin < 0) {
-        if (tmax < 0) return -1;
-        return tmax;
-    }
-    
-    return tmin;
-}
-
-// Ray-box intersection with normal calculation
-function rayBoxIntersectionWithNormal(origin, direction, box) {
-    var lx = box.lx;
-    var rx = box.rx;
-    var by = box.by;
-    var ty = box.ty;
-    var fz = box.fz;
-    var rz = box.rz;
-    
-    var t = rayBoxIntersection(origin, direction, box);
-    
-    if (t <= 0) return { t: -1 };
-    
-    // Calculate intersection point
-    var point = [
-        origin[0] + t * direction[0],
-        origin[1] + t * direction[1],
-        origin[2] + t * direction[2]
+    // Calculate hit position
+    var hitPoint = [
+        rayOrigin[0] + hitDistance * rayDirection[0],
+        rayOrigin[1] + hitDistance * rayDirection[1],
+        rayOrigin[2] + hitDistance * rayDirection[2]
     ];
     
-    // Calculate normal by finding which face was hit
-    var epsilon = 0.0001;
-    var normal = [0, 0, 0];
+    // Determine which face was hit by checking proximity to box boundaries
+    var tolerance = 0.0001;
+    var normalVector = [0, 0, 0];
     
-    if (Math.abs(point[0] - lx) < epsilon) normal[0] = -1;
-    else if (Math.abs(point[0] - rx) < epsilon) normal[0] = 1;
-    else if (Math.abs(point[1] - by) < epsilon) normal[1] = -1;
-    else if (Math.abs(point[1] - ty) < epsilon) normal[1] = 1;
-    else if (Math.abs(point[2] - fz) < epsilon) normal[2] = -1;
-    else if (Math.abs(point[2] - rz) < epsilon) normal[2] = 1;
+    // Check X faces
+    if (Math.abs(hitPoint[0] - box.lx) < tolerance) normalVector[0] = -1;
+    else if (Math.abs(hitPoint[0] - box.rx) < tolerance) normalVector[0] = 1;
+    // Check Y faces
+    else if (Math.abs(hitPoint[1] - box.by) < tolerance) normalVector[1] = -1;
+    else if (Math.abs(hitPoint[1] - box.ty) < tolerance) normalVector[1] = 1;
+    // Check Z faces
+    else if (Math.abs(hitPoint[2] - box.fz) < tolerance) normalVector[2] = -1;
+    else if (Math.abs(hitPoint[2] - box.rz) < tolerance) normalVector[2] = 1;
     
     return {
-        t: t,
-        point: point,
-        normal: normal
+        distance: hitDistance,
+        position: hitPoint,
+        normal: normalVector
     };
 }
 
-// Blinn-Phong lighting calculation
-function computeBlinnPhong(point, normal, eye, lightPos, lightColor, 
-                          materialDiffuse, materialAmbient, materialSpecular, shininess) {
-    // Normalize vectors
-    var N = normalize(normal);
-    var V = normalize(subtract(eye, point));
-    var L = normalize(subtract(lightPos, point));
-    var H = normalize(add(L, V));
+// Enhanced Blinn-Phong illumination calculation
+function calculateSurfaceIllumination(surfacePoint, surfaceNormal, viewerPosition, 
+                                     lightPosition, lightColor, materialDiffuse, 
+                                     materialAmbient, materialSpecular, shininess) {
+    // Normalize all vectors
+    var N = normalize(surfaceNormal);
+    var V = normalize([
+        viewerPosition[0] - surfacePoint[0],
+        viewerPosition[1] - surfacePoint[1],
+        viewerPosition[2] - surfacePoint[2]
+    ]);
+    var L = normalize([
+        lightPosition[0] - surfacePoint[0],
+        lightPosition[1] - surfacePoint[1],
+        lightPosition[2] - surfacePoint[2]
+    ]);
+    var H = normalize([
+        L[0] + V[0],
+        L[1] + V[1],
+        L[2] + V[2]
+    ]);
     
     // Calculate lighting components
-    var diffuse = Math.max(0, dot(N, L));
-    var specular = Math.pow(Math.max(0, dot(N, H)), shininess);
+    var diffuseComponent = Math.max(0, dot(N, L));
+    var specularComponent = Math.pow(Math.max(0, dot(N, H)), shininess);
     
-    // Combine components
-    var color = [
+    // Combine all lighting effects
+    var finalColor = [
         materialAmbient[0] * lightColor[0] + 
-        materialDiffuse[0] * lightColor[0] * diffuse + 
-        materialSpecular[0] * lightColor[0] * specular,
+        materialDiffuse[0] * lightColor[0] * diffuseComponent + 
+        materialSpecular[0] * lightColor[0] * specularComponent,
         
         materialAmbient[1] * lightColor[1] + 
-        materialDiffuse[1] * lightColor[1] * diffuse + 
-        materialSpecular[1] * lightColor[1] * specular,
+        materialDiffuse[1] * lightColor[1] * diffuseComponent + 
+        materialSpecular[1] * lightColor[1] * specularComponent,
         
         materialAmbient[2] * lightColor[2] + 
-        materialDiffuse[2] * lightColor[2] * diffuse + 
-        materialSpecular[2] * lightColor[2] * specular
+        materialDiffuse[2] * lightColor[2] * diffuseComponent + 
+        materialSpecular[2] * lightColor[2] * specularComponent
     ];
     
-    // Clamp to [0, 1]
-    color[0] = Math.min(1, Math.max(0, color[0]));
-    color[1] = Math.min(1, Math.max(0, color[1]));
-    color[2] = Math.min(1, Math.max(0, color[2]));
+    // Ensure color values are valid
+    finalColor[0] = Math.min(1, Math.max(0, finalColor[0]));
+    finalColor[1] = Math.min(1, Math.max(0, finalColor[1]));
+    finalColor[2] = Math.min(1, Math.max(0, finalColor[2]));
     
-    return color;
+    return finalColor;
 }
+
+// Keep all the professor's existing utility functions below...
+// (The subtract, add, scale, dot, cross, length, normalize functions remain unchanged)
 
 // Color constructor
 class Color {
