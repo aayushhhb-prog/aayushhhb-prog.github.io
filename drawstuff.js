@@ -1,10 +1,7 @@
 /* classes */ 
 
 /* Ray Casting Functions */
-
-
 /* ---------- PART 3: Unique Scene (Retro Robot) ---------- */
-
 function intersectRaySphere(ro, rd, sph) {
     // ro, rd are objects {x,y,z}; sph: {c:{x,y,z}, r: number}
     const ocx = ro.x - sph.c.x;
@@ -338,7 +335,6 @@ function renderPart3(context) {
     context.putImageData(out, 0, 0);
 }
 
-// Rewritten AABB intersection (slab method), returns { t: <distance>, normal: [nx,ny,nz] } or null
 function intersectRayAABB(rayOrigin, rayDir, box) {
     // axis-aligned min/max arrays for compact looping
     const mins = [ box.lx, box.by, box.fz ];
@@ -415,9 +411,6 @@ function intersectRayAABB(rayOrigin, rayDir, box) {
     return null;
 }
 
-
-// Rewritten raycast renderer for boxes with Blinn-Phong shading.
-// Compatible with boxes from boxes.json (fields: lx, rx, by, ty, fz, rz, diffuse, ambient, specular, n)
 function renderBoxesRayCast(context) {
     const boxes = getInputBoxes();
     if (boxes === String.null) return;
@@ -515,7 +508,6 @@ function renderBoxesRayCast(context) {
 
     context.putImageData(out, 0, 0);
 }
-
 
 // Color constructor
 class Color {
@@ -976,36 +968,6 @@ function drawInputBoxesUsingPaths(context) {
 } // end draw input boxes
 
 /* main -- here is where execution begins after window load */
-
-// function main() {
-
-//     // Get the canvas and context
-//     var canvas = document.getElementById("viewport"); 
-//     var context = canvas.getContext("2d");
- 
-//     // Create the image
-//     //drawRandPixels(context);
-//       // shows how to draw pixels
-    
-//     //drawRandPixelsInInputEllipsoids(context);
-//       // shows how to draw pixels and read input file
-      
-//     //drawInputEllipsoidsUsingArcs(context);
-//       // shows how to read input file, but not how to draw pixels
-    
-//     //drawRandPixelsInInputTriangles(context);
-//       // shows how to draw pixels and read input file
-    
-//     //drawInputTrainglesUsingPaths(context);
-//       // shows how to read input file, but not how to draw pixels
-    
-//     drawRandPixelsInInputBoxes(context);
-//       // shows how to draw pixels and read input file
-    
-//     //drawInputBoxesUsingPaths(context);
-//       // shows how to read input file, but not how to draw pixels
-// }
-
 function main() {
     const canvas = document.getElementById("viewport");
     const context = canvas.getContext("2d");
