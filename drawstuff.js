@@ -4,164 +4,184 @@
 
 /* Enhanced Ray Casting Implementation - Part 1 & 2 Only */
 
-// -------------------------------
-// Part 1: Unlit boxes (uses perspective-style rays; solid diffuse color)
-// -------------------------------
-function drawRayCastBoxesUnlit(context) {
-    var boxes = getInputBoxes();
-    var width = context.canvas.width;
-    var height = context.canvas.height;
-    var imageBuffer = context.createImageData(width, height);
+// Rewritten AABB intersection (slab method), returns { t: <distance>, normal: [nx,ny,nz] } or null
+function intersectRayAABB(rayOrigin, rayDir, box) {
+    // axis-aligned min/max arrays for compact looping
+    const mins = [ box.lx, box.by, box.fz ];
+    const maxs = [ box.rx, box.ty, box.rz ];
+    const ro  = [ rayOrigin.x, rayOrigin.y, rayOrigin.z ];
+    const rd  = [ rayDir.x,      rayDir.y,      rayDir.z      ];
 
-    if (boxes !== String.null) {
-        // Camera configuration (tuned so boxes appear near bottom-left)
-        var cameraPosition = [0.35, 0.25, -0.6];
-        var viewDirection = [0.5, 0.45, 0.5]; // a point in front of the camera
-        var upVector = [0, 1, 0];
+    // storage per-axis
+    const tNearAxis = [ -Infinity, -Infinity, -Infinity ];
+    const tFarAxis  = [  Infinity,  Infinity,  Infinity ];
+    const nNearAxis = [ [0,0,0], [0,0,0], [0,0,0] ];
+    const nFarAxis  = [ [0,0,0], [0,0,0], [0,0,0] ];
 
-        // compute orthonormal viewing basis
-        var viewVector = normalize([
-            viewDirection[0] - cameraPosition[0],
-            viewDirection[1] - cameraPosition[1],
-            viewDirection[2] - cameraPosition[2]
-        ]);
-        var sideVector = normalize(cross(viewVector, upVector));
-        var cameraUpVector = normalize(cross(sideVector, viewVector));
+    // helper to produce axis normals quickly
+    const negNormals = [[-1,0,0],[0,-1,0],[0,0,-1]];
+    const posNormals = [[ 1,0,0],[0, 1,0],[0,0, 1]];
 
-        // For every pixel cast ray
-        for (var row = 0; row < height; row++) {
-            for (var col = 0; col < width; col++) {
-                // normalized pixel offsets in range [-0.5, 0.5]
-                var u = (col / width) - 0.5;
-                var v = ((height - row) / height) - 0.5;
+    // For each axis compute near/far t and their face normals
+    for (let a = 0; a < 3; a++) {
+        const rda = rd[a];
+        const roa = ro[a];
 
-                // perspective-like ray direction (ensures non-zero x/y components)
-                var rayDirection = normalize([
-                    viewVector[0] + u * sideVector[0] + v * cameraUpVector[0],
-                    viewVector[1] + u * sideVector[1] + v * cameraUpVector[1],
-                    viewVector[2] + u * sideVector[2] + v * cameraUpVector[2]
-                ]);
-
-                var rayStart = cameraPosition;
-
-                // find nearest box
-                var minDistance = Number.MAX_VALUE;
-                var hitBox = null;
-                for (var i = 0; i < boxes.length; i++) {
-                    var d = calculateBoxHitDistance(rayStart, rayDirection, boxes[i]);
-                    if (d > 0 && d < minDistance) {
-                        minDistance = d;
-                        hitBox = boxes[i];
-                    }
-                }
-
-                if (hitBox !== null) {
-                    var finalColor = new Color(
-                        Math.floor(hitBox.diffuse[0] * 255),
-                        Math.floor(hitBox.diffuse[1] * 255),
-                        Math.floor(hitBox.diffuse[2] * 255),
-                        255
-                    );
-                    drawPixel(imageBuffer, col, row, finalColor);
-                } else {
-                    drawPixel(imageBuffer, col, row, new Color(0, 0, 0, 255));
-                }
-            }
+        // If ray is parallel to the axis and outside slab -> no hit
+        if (rda === 0) {
+            if (roa < mins[a] || roa > maxs[a]) return null;
+            // inside slab: set a neutral interval that won't constrain entry/exit
+            tNearAxis[a] = -Infinity;
+            tFarAxis[a]  =  Infinity;
+            nNearAxis[a] = [0,0,0];
+            nFarAxis[a]  = [0,0,0];
+            continue;
         }
-        context.putImageData(imageBuffer, 0, 0);
+
+        // compute t to the two slab planes
+        const inv = 1.0 / rda;
+        let t1 = (mins[a] - roa) * inv;
+        let t2 = (maxs[a] - roa) * inv;
+
+        // order them so tNearAxis <= tFarAxis and set normals accordingly
+        if (t1 <= t2) {
+            tNearAxis[a] = t1; tFarAxis[a] = t2;
+            nNearAxis[a]  = negNormals[a];
+            nFarAxis[a]   = posNormals[a];
+        } else {
+            tNearAxis[a] = t2; tFarAxis[a] = t1;
+            // swapped: near corresponds to positive face when rda < 0
+            nNearAxis[a]  = posNormals[a];
+            nFarAxis[a]   = negNormals[a];
+        }
     }
+
+    // overall entry is the maximum of per-axis near values
+    let tEntry = tNearAxis[0], entryIdx = 0;
+    for (let a = 1; a < 3; a++) {
+        if (tNearAxis[a] > tEntry) { tEntry = tNearAxis[a]; entryIdx = a; }
+    }
+
+    // overall exit is the minimum of per-axis far values
+    let tExit = tFarAxis[0], exitIdx = 0;
+    for (let a = 1; a < 3; a++) {
+        if (tFarAxis[a] < tExit) { tExit = tFarAxis[a]; exitIdx = a; }
+    }
+
+    // Valid intersection if intervals overlap and exit is in front of ray origin
+    if (tExit >= Math.max(tEntry, 0.0)) {
+        if (tEntry >= 0.0) {
+            return { t: tEntry, normal: nNearAxis[entryIdx] };
+        } else {
+            // origin inside box: return the exit hit and its normal
+            return { t: tExit, normal: nFarAxis[exitIdx] };
+        }
+    }
+
+    return null;
 }
 
-// -------------------------------
-// Part 2: Lit boxes with Blinn-Phong (same ray setup + lighting)
-// -------------------------------
-function drawRayCastBoxesLit(context) {
-    var boxes = getInputBoxes();
-    var width = context.canvas.width;
-    var height = context.canvas.height;
-    var imageBuffer = context.createImageData(width, height);
 
-    if (boxes !== String.null) {
-        // Camera and lighting
-        var cameraPosition = [0.35, 0.25, -0.6];
-        var viewDirection = [0.5, 0.45, 0.5];
-        var upVector = [0, 1, 0];
+// Rewritten raycast renderer for boxes with Blinn-Phong shading.
+// Compatible with boxes from boxes.json (fields: lx, rx, by, ty, fz, rz, diffuse, ambient, specular, n)
+function renderBoxesRayCast(context) {
+    const boxes = getInputBoxes();
+    if (boxes === String.null) return;
 
-        // light placed overhead and slightly towards camera
-        var lightPosition = [0.4, 1.4, -0.2];
-        var lightIntensity = [1.0, 1.0, 1.0];
+    const W = context.canvas.width;
+    const H = context.canvas.height;
+    const out = context.createImageData(W, H);
 
-        // compute viewing basis
-        var viewVector = normalize([
-            viewDirection[0] - cameraPosition[0],
-            viewDirection[1] - cameraPosition[1],
-            viewDirection[2] - cameraPosition[2]
-        ]);
-        var sideVector = normalize(cross(viewVector, upVector));
-        var cameraUpVector = normalize(cross(sideVector, viewVector));
+    // eye and light (same intent as before, arranged so boxes sit in lower-left area)
+    const eye = { x: 0.5, y: 0.5, z: -0.5 };
+    const lightPos = { x: -0.5, y: 1.5, z: -0.5 };
+    const La = [1,1,1], Ld = [1,1,1], Ls = [1,1,1];
 
-        for (var row = 0; row < height; row++) {
-            for (var col = 0; col < width; col++) {
-                var u = (col / width) - 0.5;
-                var v = ((height - row) / height) - 0.5;
+    // tiny, local vector helpers (kept internal to avoid touching other code)
+    const vSub = (a,b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+    const vAdd = (a,b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+    const vScale = (v, s) => ({ x: v.x * s, y: v.y * s, z: v.z * s });
+    const vDot = (a,b) => a.x*b.x + a.y*b.y + a.z*b.z;
+    const vLen = v => Math.sqrt(vDot(v,v));
+    const vNorm = v => { const L = vLen(v); return L>0 ? vScale(v, 1/L) : {x:0,y:0,z:0}; };
+    const clamp01 = x => Math.max(0, Math.min(1, x));
 
-                var rayDirection = normalize([
-                    viewVector[0] + u * sideVector[0] + v * cameraUpVector[0],
-                    viewVector[1] + u * sideVector[1] + v * cameraUpVector[1],
-                    viewVector[2] + u * sideVector[2] + v * cameraUpVector[2]
-                ]);
-                var rayStart = cameraPosition;
+    // iterate image pixels
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
 
-                // find closest hit with normal
-                var minDistance = Number.MAX_VALUE;
-                var hitBox = null;
-                var hitPosition = null;
-                var surfaceNormal = null;
+            // compute a world-space point on the image plane (pixel center)
+            const u = (x + 0.5) / W;           // [0,1]
+            const v = (y + 0.5) / H;           // [0,1]
+            const pixelWorld = { x: u, y: 1.0 - v, z: 0.0 };
 
-                for (var i = 0; i < boxes.length; i++) {
-                    var hitInfo = calculateBoxHitWithNormal(rayStart, rayDirection, boxes[i]);
-                    if (hitInfo.distance > 0 && hitInfo.distance < minDistance) {
-                        minDistance = hitInfo.distance;
-                        hitBox = boxes[i];
-                        hitPosition = hitInfo.position;
-                        surfaceNormal = hitInfo.normal;
-                    }
-                }
+            // ray direction from eye through pixel (not normalized on purpose for t scaling)
+            const rd = vSub(pixelWorld, eye);
 
-                if (hitBox !== null) {
-                    // choose material components
-                    var ambient = hitBox.diffuse;                 // keep simple ambient
-                    var diffuse = hitBox.diffuse;
-                    var specular = [0.2, 0.2, 0.2];               // subtle specular
-                    var shininess = 40.0;
+            // find nearest intersection
+            let bestT = Infinity;
+            let hitInfo = null;
+            let hitBox = null;
 
-                    var illuminatedColor = calculateSurfaceIllumination(
-                        hitPosition,
-                        surfaceNormal,
-                        cameraPosition,
-                        lightPosition,
-                        lightIntensity,
-                        diffuse,
-                        ambient,
-                        specular,
-                        shininess
-                    );
-
-                    var finalColor = new Color(
-                        Math.floor(illuminatedColor[0] * 255),
-                        Math.floor(illuminatedColor[1] * 255),
-                        Math.floor(illuminatedColor[2] * 255),
-                        255
-                    );
-                    drawPixel(imageBuffer, col, row, finalColor);
-                } else {
-                    drawPixel(imageBuffer, col, row, new Color(0, 0, 0, 255));
+            for (let i = 0; i < boxes.length; i++) {
+                const res = intersectRayAABB(eye, rd, boxes[i]);
+                if (res && res.t > 0 && res.t < bestT) {
+                    bestT = res.t;
+                    hitBox = boxes[i];
+                    // compute hit point
+                    const hp = { x: eye.x + rd.x * res.t, y: eye.y + rd.y * res.t, z: eye.z + rd.z * res.t };
+                    hitInfo = { p: hp, n: { x: res.normal[0], y: res.normal[1], z: res.normal[2] } };
                 }
             }
+
+            // default background black
+            let R = 0, G = 0, B = 0, A = 255;
+
+            if (hitInfo && hitBox) {
+                // gather material properties with safe defaults
+                const Ka = (hitBox.ambient  && hitBox.ambient.length)  ? hitBox.ambient  : [0,0,0];
+                const Kd = (hitBox.diffuse  && hitBox.diffuse.length)  ? hitBox.diffuse  : [1,1,1];
+                const Ks = (hitBox.specular && hitBox.specular.length) ? hitBox.specular : [0,0,0];
+                const shin = (typeof hitBox.n === 'number') ? hitBox.n : 32;
+
+                // normalize vectors needed for Blinn-Phong
+                const N = vNorm(hitInfo.n);
+                const L = vNorm(vSub(lightPos, hitInfo.p));
+                const V = vNorm(vSub(eye, hitInfo.p));
+                const H = vNorm(vAdd(L, V));
+
+                const NdotL = Math.max(0, vDot(N, L));
+                const NdotH = Math.max(0, vDot(N, H));
+
+                // compute components
+                const ambient  = [ Ka[0]*La[0], Ka[1]*La[1], Ka[2]*La[2] ];
+                const diffuse  = [ Kd[0]*Ld[0]*NdotL, Kd[1]*Ld[1]*NdotL, Kd[2]*Ld[2]*NdotL ];
+                const specular = (NdotL > 0)
+                    ? [ Ks[0]*Ls[0]*Math.pow(NdotH, shin), Ks[1]*Ls[1]*Math.pow(NdotH, shin), Ks[2]*Ls[2]*Math.pow(NdotH, shin) ]
+                    : [0,0,0];
+
+                // final color clamped to [0,1]
+                const colR = clamp01(ambient[0] + diffuse[0] + specular[0]);
+                const colG = clamp01(ambient[1] + diffuse[1] + specular[1]);
+                const colB = clamp01(ambient[2] + diffuse[2] + specular[2]);
+
+                R = Math.floor(colR * 255);
+                G = Math.floor(colG * 255);
+                B = Math.floor(colB * 255);
+            }
+
+            // write pixel into image buffer
+            const idx = (y * W + x) * 4;
+            out.data[idx    ] = R;
+            out.data[idx + 1] = G;
+            out.data[idx + 2] = B;
+            out.data[idx + 3] = A;
         }
-        context.putImageData(imageBuffer, 0, 0);
     }
+
+    context.putImageData(out, 0, 0);
 }
+
 
 // Color constructor
 class Color {
@@ -663,7 +683,7 @@ function main() {
     //drawRayCastBoxesUnlit(context);
     
     // Part 2: Lit boxes with Blinn-Phong illumination
-    drawRayCastBoxesLit(context);
-    
+    // drawRayCastBoxesLit(context);
+    renderBoxesRayCast(context);
     // You can comment/uncomment the above lines to test each part
 }
