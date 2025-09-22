@@ -72,9 +72,9 @@ function buildPart3Scene() {
         lx: 0.35, rx: 0.65,
         by: 0.12, ty: 0.52,
         fz: 0.7, rz: 0.95,
-        diffuse: [0.15, 0.15, 0.18],
-        ambient: [0.05, 0.05, 0.06],
-        specular: [0.8, 0.8, 0.8],
+        diffuse: [0.2, 0.6, 1.0],   
+		ambient: [0.1, 0.3, 0.5],   
+		specular: [0.9, 0.9, 0.9],  
         n: 64
     });
 
@@ -118,10 +118,10 @@ function buildPart3Scene() {
     spheres.push({
         c: { x: 0.5, y: 0.72, z: 0.82 },
         r: 0.12,
-        diffuse: [0.22, 0.22, 0.27],
-        ambient: [0.05, 0.05, 0.05],
-        specular: [0.9, 0.9, 0.95],
-        n: 80
+        diffuse: [0.8, 0.2, 0.2],   
+		ambient: [0.3, 0.1, 0.1],
+		specular: [1.0, 0.9, 0.9],
+		n: 100
     });
 
     // left eye (glowing)
